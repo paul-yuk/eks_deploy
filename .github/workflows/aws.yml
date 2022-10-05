@@ -1,0 +1,75 @@
+on:
+  push:
+    branches:
+      - 'develop'
+      - 'release'
+
+name: Deploy to Amazon ECS
+
+env:
+  SERVICE_NAME: checker
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set variables
+      id: setvars
+      run: |
+        if [[ "${{github.base_ref}}" == "release" || "${{github.ref}}" == "refs/heads/release" ]]; then
+          echo "::set-output name=cluster::dmp_prd"
+          echo "::set-output name=slack_channel::argo_deploy_prd"
+        else
+          echo "::set-output name=cluster::dmp_dev"
+          echo "::set-output name=slack_channel::argo_deploy_dev"
+        fi
+        echo "::set-output name=date::$(date '+%Y%m%d%H%M%S')"
+
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-northeast-2
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Inject slug/short variables
+      uses: rlespinasse/github-slug-action@v3.x
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: 'paul-test'
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build a docker container and
+        # push it to ECR so that it can
+        # be deployed to ECS.
+        docker build -t $ECR_REPOSITORY .
+
+        # update latest version
+        docker tag $ECR_REPOSITORY $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+        # push new version
+        docker tag $ECR_REPOSITORY $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-${{steps.setvars.outputs.date}}
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-${{steps.setvars.outputs.date}}
+
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+    - name: verify deployment
+      id: deploy
+      uses: steebchen/kubectl@v2.0.0
+      with:
+        config: ${{ secrets.KUBE_CONFIG_DATA }}
+        version: v1.22.0
+        command: rollout status deployment/prism-throttling
