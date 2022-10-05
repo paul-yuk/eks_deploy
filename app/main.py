@@ -4,7 +4,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-DEF_VERSION = 5
+DEF_VERSION = 6
 
 
 def main():

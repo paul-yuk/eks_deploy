@@ -56,26 +56,18 @@ jobs:
 
     - name: Build, tag, and push image to Amazon ECR
       id: build-image
+      uses: docker/build-push-action@v3
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         ECR_REPOSITORY: 'paul-test'
         IMAGE_TAG: ${{ github.sha }}
-      run: |
-        # Build a docker container and
-        # push it to ECR so that it can
-        # be deployed to ECS.
-        docker build -t $ECR_REPOSITORY .
-
-        # update latest version
-        docker tag $ECR_REPOSITORY $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-        # push new version
-        docker tag $ECR_REPOSITORY $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-${{steps.setvars.outputs.date}}
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-${{steps.setvars.outputs.date}}
-
-        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:latest"
-
+      with:
+        push: true
+        tags: |
+          ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}-${{steps.setvars.outputs.date}}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Update kube config
       run: aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
